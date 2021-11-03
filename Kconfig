@@ -1,0 +1,29 @@
+#
+# Copyright (c) 2019 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menu "nRF CoAP client sample"
+
+config COAP_SERVER_HOSTNAME
+	string "CoAP server hostname"
+	default "coap.thingsboard.cloud"
+
+config COAP_URI_PATH_API
+	string "CoAP Path"
+	default "api/v1/"
+
+config COAP_TELEMETRY
+	string "CoAP Path Telemetry"
+	default "/telemetry"
+
+config COAP_SERVER_PORT
+	int "CoAP server port"
+	default 5683
+
+endmenu
+
+menu "Zephyr Kernel"
+source "Kconfig.zephyr"
+endmenu

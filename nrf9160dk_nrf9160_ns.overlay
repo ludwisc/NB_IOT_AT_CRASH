@@ -1,0 +1,11 @@
+&uart1 {
+    status = "okay";
+    current-speed = <115200>;
+};
+
+&uart3 {
+    status = "okay";
+    current-speed = <115200>;
+    tx-pin = <12>;
+    rx-pin = <13>;
+};
