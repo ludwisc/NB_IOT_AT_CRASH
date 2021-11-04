@@ -22,18 +22,9 @@
 
 
 // --------------------------------------------------------- public structs ---
-typedef enum{
-    NO_EVENT,
-    DISTANCE_REC_EVENT,
-    SPEED_REC_EVENT,
-    MEASURE_TIMER_EVENT,
-    DATA_SENDED_EVENT,
-    TIMEOUT_EVENT
-} event_t;
 
 // ------------------------------------------------------- public functions ---
 
-int8_t new_event(event_t event);
 void fsm_init(void);
 void stateMachine(void);
 

@@ -14,8 +14,6 @@ target_sources(app PRIVATE
 src/main.c
 src/lte_communication.c
 src/fsm.c
-src/radar_communication.c
-src/measure.c
 )
 
 # NORDIC SDK APP END

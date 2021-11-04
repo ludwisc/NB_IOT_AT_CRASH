@@ -20,6 +20,7 @@
 #include <net/socket.h>
 #include <modem/lte_lc.h>
 #include <modem/at_cmd.h>
+#include <modem/at_notif.h>
 #include <random/rand32.h>
 #include <date_time.h>
 #if defined(CONFIG_LWM2M_CARRIER)
@@ -27,9 +28,7 @@
 #endif
 
 #include "lte_communication.h"
-#include "measure.h"
 
-#define APP_COAP_SEND_INTERVAL_MS 10000
 #define APP_COAP_MAX_MSG_LEN 1280
 #define APP_COAP_VERSION 1
 
@@ -48,17 +47,25 @@ static const char get_signal_power_command[] = "AT+CESQ";
 
 static int server_resolve(void);
 static int client_init(void);
-static int client_handle_get_response(uint8_t *buf, int received);
-static int client_get_send(void);
 static int client_post_send(uint8_t *payload, const uint8_t *acces_token_str);
 static void modem_configure(void);
-static int wait(int timeout);
 // ------------------------------------------------------- public functions ---
 
 int lte_init()
 {
     int err;
 
+    err = at_cmd_init();
+	if (err) {
+		printk("Failed to initialize AT commands, err %d\n", err);
+		return err;
+	}
+
+	err = at_notif_init();
+	if (err) {
+		printk("Failed to initialize AT notifications, err %d\n", err);
+		return err;
+	}
     modem_configure();
 
     err = server_resolve();
@@ -97,10 +104,6 @@ void lte_close(void)
     (void)close(sock);
 }
 
-int lte_wait(const uint32_t timeout)
-{
-    return wait(timeout);
-}
 
 int send_data(uint8_t *payload, const uint8_t *acces_token_str)
 {
@@ -110,38 +113,29 @@ int send_data(uint8_t *payload, const uint8_t *acces_token_str)
     return err;
 }
 
-uint64_t get_network_time(void)
-{
-    int64_t unix_time = 0;
-    int err = 0;
-    err = date_time_now(&unix_time);
-    if (err != 0)
-    {
-        printk("not date/time");
-        unix_time = 0;
-    }
-    return (uint64_t)unix_time;
-}
-
 void get_signal_power(uint8_t *buffer)
 {
     enum at_cmd_state state;
     char temp[50];
+    uint8_t *ptr;
+    const uint8_t delim[] = ",";
     int16_t signalPower = 0;
-    printk("Before AT\n");
+    printk("Befor AT\n");
     at_cmd_write(get_signal_power_command, temp, sizeof(temp), &state);
     printk("After AT\n");
-    
-    //if (state == AT_CMD_OK)
-    //{
-    //    for (uint8_t u = 0; u < 3; u++)
-    //    {
-    //        buffer[u] = temp[u + 25];
-    //    }
-    //}
-    //
-    //signalPower = atoi(buffer);
-    signalPower = 141;
+
+    if (state == AT_CMD_OK)
+    {
+        // rsrp is 5th element of the string
+        ptr = strtok(temp, delim);
+        for (uint8_t u = 0; u < 5; u++)
+        {
+            ptr = strtok(NULL, delim);
+        }
+        signalPower = atoi(ptr);
+        signalPower -= 140;
+    }
+
     sprintf(buffer, "%d", signalPower);
     printk("Signal-power: %sdBm\n", buffer);
 }
@@ -235,89 +229,6 @@ static int client_init(void)
     return 0;
 }
 
-/**@brief Handles responses from the remote CoAP server. */
-static int client_handle_get_response(uint8_t *buf, int received)
-{
-    int err;
-    struct coap_packet reply;
-    const uint8_t *payload;
-    uint16_t payload_len;
-    uint8_t token[8];
-    uint16_t token_len;
-    uint8_t temp_buf[16];
-
-    err = coap_packet_parse(&reply, buf, received, NULL, 0);
-    if (err < 0)
-    {
-        printk("Malformed response received: %d\n", err);
-        return err;
-    }
-
-    payload = coap_packet_get_payload(&reply, &payload_len);
-    token_len = coap_header_get_token(&reply, token);
-
-    if ((token_len != sizeof(next_token)) &&
-        (memcmp(&next_token, token, sizeof(next_token)) != 0))
-    {
-        printk("Invalid token received: 0x%02x%02x\n",
-               token[1], token[0]);
-        return 0;
-    }
-
-    if (payload_len > 0)
-    {
-        snprintf(temp_buf, MAX(payload_len, sizeof(temp_buf)), "%s", payload);
-    }
-    else
-    {
-        strcpy(temp_buf, "EMPTY");
-    }
-
-    printk("CoAP response: code: 0x%x, token 0x%02x%02x, payload: %s\n",
-           coap_header_get_code(&reply), token[1], token[0], temp_buf);
-
-    return 0;
-}
-
-/**@brief Send CoAP GET request. */
-static int client_get_send(void)
-{
-    int err;
-    struct coap_packet request;
-
-    next_token++;
-
-    err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
-                           APP_COAP_VERSION, COAP_TYPE_NON_CON,
-                           sizeof(next_token), (uint8_t *)&next_token,
-                           COAP_METHOD_GET, coap_next_id());
-    if (err < 0)
-    {
-        printk("Failed to create CoAP request, %d\n", err);
-        return err;
-    }
-
-    /*err = coap_packet_append_option(&request, COAP_OPTION_URI_PATH,
-					(uint8_t *)CONFIG_COAP_RESOURCE,
-					strlen(CONFIG_COAP_RESOURCE));*/
-    if (err < 0)
-    {
-        printk("Failed to encode CoAP option, %d\n", err);
-        return err;
-    }
-
-    err = send(sock, request.data, request.offset, 0);
-    if (err < 0)
-    {
-        printk("Failed to send CoAP request, %d\n", errno);
-        return -errno;
-    }
-
-    printk("CoAP request sent: token 0x%04x\n", next_token);
-
-    return 0;
-}
-
 static int client_post_send(uint8_t *payload, const uint8_t *acces_token_str)
 {
     int err;
@@ -359,8 +270,6 @@ static int client_post_send(uint8_t *payload, const uint8_t *acces_token_str)
 
     coap_packet_append_payload(&request, payload, strlen(payload));
 
-    printk(request.data);
-    printk("\n");
     err = send(sock, request.data, request.offset, 0);
     if (err < 0)
     {
@@ -372,35 +281,6 @@ static int client_post_send(uint8_t *payload, const uint8_t *acces_token_str)
     return 0;
 }
 
-#if defined(CONFIG_LWM2M_CARRIER)
-K_SEM_DEFINE(carrier_registered, 0, 1);
-
-void lwm2m_carrier_event_handler(const lwm2m_carrier_event_t *event)
-{
-    switch (event->type)
-    {
-    case LWM2M_CARRIER_EVENT_BSDLIB_INIT:
-        printk("LWM2M_CARRIER_EVENT_BSDLIB_INIT\n");
-        break;
-    case LWM2M_CARRIER_EVENT_CONNECT:
-        printk("LWM2M_CARRIER_EVENT_CONNECT\n");
-        break;
-    case LWM2M_CARRIER_EVENT_DISCONNECT:
-        printk("LWM2M_CARRIER_EVENT_DISCONNECT\n");
-        break;
-    case LWM2M_CARRIER_EVENT_READY:
-        printk("LWM2M_CARRIER_EVENT_READY\n");
-        k_sem_give(&carrier_registered);
-        break;
-    case LWM2M_CARRIER_EVENT_FOTA_START:
-        printk("LWM2M_CARRIER_EVENT_FOTA_START\n");
-        break;
-    case LWM2M_CARRIER_EVENT_REBOOT:
-        printk("LWM2M_CARRIER_EVENT_REBOOT\n");
-        break;
-    }
-}
-#endif /* defined(CONFIG_LWM2M_CARRIER) */
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
  * successfully established.
@@ -420,7 +300,7 @@ static void modem_configure(void)
         /* Wait for the LWM2M_CARRIER to configure the modem and
 		 * start the connection.
 		 */
-        printk("Waitng for carrier registration...\n");
+        printk("Waiting for carrier registration...\n");
         k_sem_take(&carrier_registered, K_FOREVER);
         printk("Registered!\n");
 #else  /* defined(CONFIG_LWM2M_CARRIER) */
@@ -433,44 +313,4 @@ static void modem_configure(void)
 #endif /* defined(CONFIG_LWM2M_CARRIER) */
     }
 #endif /* defined(CONFIG_LTE_LINK_CONTROL) */
-}
-
-/* Returns 0 if data is available.
- * Returns -EAGAIN if timeout occured and there is no data.
- * Returns other, negative error code in case of poll error.
- */
-static int wait(int timeout)
-{
-    int ret = poll(&fds, 1, timeout);
-
-    if (ret < 0)
-    {
-        printk("poll error: %d\n", errno);
-        return -errno;
-    }
-
-    if (ret == 0)
-    {
-        /* Timeout. */
-        return -EAGAIN;
-    }
-
-    if ((fds.revents & POLLERR) == POLLERR)
-    {
-        printk("wait: POLLERR\n");
-        return -EIO;
-    }
-
-    if ((fds.revents & POLLNVAL) == POLLNVAL)
-    {
-        printk("wait: POLLNVAL\n");
-        return -EBADF;
-    }
-
-    if ((fds.revents & POLLIN) != POLLIN)
-    {
-        return -EAGAIN;
-    }
-
-    return 0;
 }

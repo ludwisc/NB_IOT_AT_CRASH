@@ -28,14 +28,7 @@
 
 int lte_init();
 void lte_close(void);
-int lte_wait(const uint32_t timeout);
 int send_data(uint8_t *payload, const uint8_t *acces_token_str);
-
-/**
- * \brief	returns unix network time in ms
- * \return	unix time in ms, 0 if no time is available
- */
-uint64_t get_network_time(void);
 
 /**
  * \brief	returns receiving signal power in dbm
@@ -45,9 +38,6 @@ void get_signal_power(uint8_t *buffer);
 
 void nrf_modem_recoverable_error_handler(uint32_t err);
 
-#if defined(CONFIG_LWM2M_CARRIER)
-void lwm2m_carrier_event_handler(const lwm2m_carrier_event_t *event);
-#endif
 
 #endif /* _LTE_COMMUNICATION_H */
 

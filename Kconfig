@@ -18,6 +18,10 @@ config COAP_TELEMETRY
 	string "CoAP Path Telemetry"
 	default "/telemetry"
 
+config COAP_ATTRIBUTES
+	string "CoAP Path Telemetry"
+	default "/attributes"
+
 config COAP_SERVER_PORT
 	int "CoAP server port"
 	default 5683
